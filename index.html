@@ -2,147 +2,1275 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="description" content="Snek Volt is an electromagnetic circuit snake. Steer a copper trace, flip charge polarity, overclock, and watch the simulated rail voltage on a live oscilloscope." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%2307140f%27/%3E%3Cpath d=%27M5 22h8l4-8h10%27 fill=%27none%27 stroke=%27%23f2b866%27 stroke-width=%273.5%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3Ccircle cx=%2727%27 cy=%2714%27 r=%273%27 fill=%27%2338bdf8%27/%3E%3C/svg%3E" />
   <title>Snek Volt - Electromagnetic Circuit Snake</title>
   <style>
+    /*
+     * Snek Volt web build.
+     * World: a bare PCB on a bench. Solder-mask green, bare copper, silkscreen white,
+     * oscilloscope phosphor. Polarity stays cyan (+) and amber (-) from the original game.
+     * Every color and font below is a named token; canvas code reads the tokens at runtime.
+     */
+    :root {
+      color-scheme: dark;
+
+      --mask-950: #050f0b;
+      --mask-900: #07140f;
+      --mask-lift: #0d221a;
+      --panel: #0b1b15;
+      --raised: #112820;
+      --raised-hover: #16342a;
+      --raised-active: #1a3d31;
+      --line: #20392f;
+      --line-strong: #2f5242;
+      --grid: #10281e;
+
+      --ink: #e8f0e6;
+      --ink-dim: #9db3a6;
+      --ink-on-copper: #1a1008;
+
+      --copper: #d08a3c;
+      --copper-hi: #f2b866;
+      --copper-lo: #3b2a17;
+      --copper-edge: #5b4326;
+
+      --silk: #cfdccd;
+      --silk-dim: #5f7a6c;
+
+      --pos: #38bdf8;
+      --pos-lo: #0b6a94;
+      --neg: #fbbf24;
+      --neg-lo: #a8620a;
+      --portal-a: #b47bff;
+      --portal-b: #f06cae;
+      --danger: #ff6a5c;
+      --overlay-scrim: rgba(5, 15, 11, 0.62);
+
+      --scope-bg: #040d09;
+      --scope-grat: #0f2e20;
+      --scope-grat-major: #1a4631;
+      --phosphor: #62f5a4;
+      --phosphor-dim: #3fae7b;
+
+      --focus: #f2b866;
+      --pol: var(--pos);
+
+      --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-data: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 24px;
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    [data-pol="neg"] { --pol: var(--neg); }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body { overflow-x: clip; }
+
     body {
       margin: 0;
-      background: #070a10;
-      color: #e2e8f0;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 24px;
+      min-height: 100vh;
+      min-height: 100dvh;
+      background: var(--mask-950);
+      color: var(--ink);
+      font: 400 15px/1.5 var(--font-ui);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
     }
-    h1 { margin: 0 0 6px; font-size: 22px; }
-    .sub { color: #94a3b8; font-size: 13px; margin-bottom: 14px; }
-    canvas {
-      border: 2px solid #1e293b;
-      border-radius: 8px;
-      background: #0a0e16;
-      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+
+    ::selection { background: var(--copper); color: var(--ink-on-copper); }
+
+    :focus { outline: none; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+    }
+
+    .rig {
+      max-width: 1340px;
+      margin: 0 auto;
+      padding: clamp(12px, 3vw, 32px);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "head" "stats" "board" "controls" "scope" "clock" "keys";
+      row-gap: var(--space-3);
+    }
+
+    /* Masthead */
+    .masthead {
+      grid-area: head;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3) var(--space-5);
+      margin-bottom: var(--space-2);
+    }
+    .masthead h1 {
+      margin: 0;
+      font: 700 clamp(1.6rem, 4vw, 2.25rem)/1.05 var(--font-ui);
+      letter-spacing: -0.02em;
+      font-style: normal;
+      overflow-wrap: anywhere;
+      min-width: 0;
+    }
+    .masthead h1 span { color: var(--copper-hi); }
+    .tagline {
+      margin: var(--space-1) 0 0;
+      max-width: 52ch;
+      color: var(--ink-dim);
+      font-size: 0.9375rem;
+      text-wrap: balance;
+    }
+    .toggles { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+    /* Buttons: one component, every state */
+    .btn {
+      appearance: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      min-height: 44px;
+      padding: 0 var(--space-4);
+      font: 600 0.875rem/1 var(--font-ui);
+      white-space: nowrap;
+      color: var(--ink);
+      background: var(--raised);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      transition: background-color 140ms var(--ease-out), border-color 140ms var(--ease-out), color 140ms var(--ease-out), transform 90ms var(--ease-out);
+    }
+    @media (hover: hover) {
+      .btn:hover:not(:disabled) { border-color: var(--copper); background: var(--raised-hover); }
+    }
+    .btn:active:not(:disabled), .btn.is-held { transform: translateY(1px); border-color: var(--copper-hi); background: var(--raised-active); }
+    .btn[aria-pressed="true"], .btn[aria-checked="true"] {
+      background: var(--copper);
+      border-color: var(--copper-hi);
+      color: var(--ink-on-copper);
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn--primary { background: var(--copper); border-color: var(--copper-hi); color: var(--ink-on-copper); }
+    @media (hover: hover) {
+      .btn--primary:hover:not(:disabled), .btn[aria-pressed="true"]:hover:not(:disabled), .btn[aria-checked="true"]:hover:not(:disabled) {
+        background: var(--copper-hi); border-color: var(--copper-hi);
+      }
+    }
+    .btn--primary:active:not(:disabled) { background: var(--copper); }
+
+    .led {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--line-strong);
+      transition: background-color 140ms var(--ease-out);
+    }
+    .btn[aria-checked="true"] .led { background: var(--ink-on-copper); }
+
+    /* Panels. On mobile each is its own block, on desktop they join into one rail. */
+    .sect {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: var(--space-4);
+      min-width: 0;
+    }
+    .sect h2 {
+      margin: 0 0 var(--space-3);
+      font: 600 0.875rem/1.2 var(--font-ui);
+      color: var(--ink);
+      font-style: normal;
+    }
+    .sect h2 small { font: 400 0.8125rem/1.2 var(--font-ui); color: var(--ink-dim); margin-left: var(--space-2); }
+
+    .stats { grid-area: stats; }
+    .board-area { grid-area: board; min-width: 0; }
+    .controls { grid-area: controls; }
+    .scope { grid-area: scope; }
+    .clock { grid-area: clock; }
+    .keys { grid-area: keys; }
+
+    /* Stats */
+    .stats-grid {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: var(--space-3) var(--space-5);
+      align-items: end;
+    }
+    .stats-grid dl { margin: 0; min-width: 0; }
+    .stat dt { color: var(--ink-dim); font-size: 0.8125rem; line-height: 1.2; white-space: nowrap; }
+    .stat dd { margin: var(--space-1) 0 0; font: 600 1.25rem/1.1 var(--font-data); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .stat--score dd { font-size: clamp(1.9rem, 6vw, 2.5rem); color: var(--pol); }
+
+    .polarity-row { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
+    .pol-badge {
+      flex: none;
+      width: 36px; height: 36px;
+      border: 2px solid var(--pol);
+      border-radius: 50%;
+      color: var(--pol);
+      display: grid; place-items: center;
+      transition: color 140ms var(--ease-out), border-color 140ms var(--ease-out);
+    }
+    .pol-badge svg { width: 18px; height: 18px; }
+    [data-pol="neg"] .plus-v { display: none; }
+    .polarity-text { font-weight: 600; color: var(--pol); min-width: 0; }
+    .polarity-text small { display: block; font-weight: 400; color: var(--ink-dim); font-size: 0.8125rem; line-height: 1.35; }
+
+    .meter-row { margin-top: var(--space-4); }
+    .meter-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.8125rem; color: var(--ink-dim); }
+    .meter-head .meter-value { font: 600 0.875rem/1 var(--font-data); color: var(--ink); font-variant-numeric: tabular-nums; }
+    .meter {
+      --pct: 65;
+      margin-top: var(--space-2);
+      height: 12px;
+      border-radius: 3px;
+      background: repeating-linear-gradient(90deg, var(--line) 0 8px, transparent 8px 10px);
+      position: relative;
+      overflow: hidden;
+    }
+    .meter i {
+      position: absolute; inset: 0 auto 0 0;
+      width: calc(var(--pct) * 1%);
+      background: repeating-linear-gradient(90deg, var(--copper) 0 8px, transparent 8px 10px);
+    }
+    .meter.is-dash i { background: repeating-linear-gradient(90deg, var(--copper-hi) 0 8px, transparent 8px 10px); }
+    .meter.is-low i { background: repeating-linear-gradient(90deg, var(--danger) 0 8px, transparent 8px 10px); }
+
+    /* Board */
+    .board-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 896px;
+      margin-inline: auto;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--mask-900);
+    }
+    #board { display: block; width: 100%; height: auto; aspect-ratio: 896 / 616; touch-action: none; }
+
+    .overlay {
+      position: absolute; inset: 0;
+      display: grid; place-items: center;
+      padding: var(--space-4);
+      background: var(--overlay-scrim);
+      opacity: 0; visibility: hidden;
+      transition: opacity 200ms var(--ease-out), visibility 0s linear 200ms;
+    }
+    .overlay.is-open { opacity: 1; visibility: visible; transition-delay: 0s; }
+    .overlay-body {
+      width: min(100%, 360px);
+      padding: var(--space-5);
+      background: var(--panel);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      text-align: center;
+    }
+    .overlay-body h2 { margin: 0 0 var(--space-2); font: 700 1.375rem/1.15 var(--font-ui); font-style: normal; text-wrap: balance; }
+    .overlay-body p { margin: 0 0 var(--space-4); color: var(--ink-dim); text-wrap: balance; }
+    .overlay-body .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; color: var(--ink); }
+    .overlay[data-state="over"] h2 { color: var(--danger); }
+
+    /* Scope */
+    .scope canvas {
+      display: block; width: 100%; height: auto; aspect-ratio: 320 / 132;
+      border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+      background: var(--scope-bg);
+    }
+    .readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-3) 0 0; }
+    .readouts div { min-width: 0; }
+    .readouts dt { color: var(--ink-dim); font-size: 0.8125rem; line-height: 1.2; }
+    .readouts dd { margin: var(--space-1) 0 0; font: 600 1rem/1.1 var(--font-data); font-variant-numeric: tabular-nums; color: var(--phosphor); white-space: nowrap; }
+    .readouts dd.is-fault { color: var(--danger); }
+    .note { margin: var(--space-3) 0 0; color: var(--ink-dim); font-size: 0.8125rem; max-width: 60ch; }
+
+    /* Clock selector */
+    .seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+    .seg .btn { padding: 0 var(--space-2); font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
+    /* D-pad and actions */
+    .pad { display: grid; gap: var(--space-4); justify-items: center; }
+    .dpad {
+      --size: 56px;
+      display: grid;
+      grid-template-columns: repeat(3, var(--size));
+      grid-template-rows: repeat(3, var(--size));
+      gap: var(--space-1);
+    }
+    .dpad .btn { width: var(--size); height: var(--size); min-height: 0; padding: 0; touch-action: none; }
+    .dpad svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+    .dpad [data-dir="up"] { grid-area: 1 / 2; }
+    .dpad [data-dir="left"] { grid-area: 2 / 1; }
+    .dpad [data-dir="right"] { grid-area: 2 / 3; }
+    .dpad [data-dir="down"] { grid-area: 3 / 2; }
+    .dpad [data-dir="left"] svg { transform: rotate(-90deg); }
+    .dpad [data-dir="right"] svg { transform: rotate(90deg); }
+    .dpad [data-dir="down"] svg { transform: rotate(180deg); }
+    .dpad-hub { grid-area: 2 / 2; border-radius: 50%; margin: 14px; background: var(--mask-900); border: 1px solid var(--line); }
+    .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); width: 100%; }
+    .actions .btn { min-height: 52px; touch-action: none; }
+
+    /* Key legend */
+    .keys dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2) var(--space-4); align-items: center; }
+    .keys dt { color: var(--ink-dim); font-size: 0.875rem; }
+    .keys dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+    kbd {
+      font: 600 0.75rem/1 var(--font-data);
+      padding: 4px 6px;
+      color: var(--silk);
+      background: var(--mask-900);
+      border: 1px solid var(--line-strong);
+      border-bottom-width: 2px;
+      border-radius: 4px;
+    }
+    @media (hover: none) { .keys { display: none; } }
+
+    /* Desktop: board and key legend left, one joined instrument rail right */
+    @media (min-width: 1080px) {
+      .rig {
+        grid-template-columns: minmax(0, 1fr) 352px;
+        grid-template-areas: "head head" "board stats" "board scope" "board clock" "controls keys";
+        column-gap: 20px;
+        row-gap: 0;
+      }
+      .board-area { align-self: start; }
+      .stats, .scope, .clock, .keys { border-radius: 0; border-top-width: 0; }
+      .stats { border-top-width: 1px; border-radius: var(--radius) var(--radius) 0 0; }
+      .keys { border-radius: 0 0 var(--radius) var(--radius); }
+      .controls { align-self: start; margin-top: var(--space-4); max-width: 896px; width: 100%; justify-self: center; }
+      .pad { grid-auto-flow: column; justify-content: space-between; align-items: center; gap: var(--space-5); }
+      .actions { width: auto; grid-template-columns: repeat(2, 148px); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition-duration: 0.01ms !important; transition-delay: 0s !important; animation: none !important; }
     }
   </style>
 </head>
 <body>
-  <h1>Snek Volt</h1>
-  <div class="sub">WASD / Arrows: Move &nbsp;|&nbsp; SPACE: Flip Polarity (+ / -) &nbsp;|&nbsp; SHIFT: Overclock Dash &nbsp;|&nbsp; R: Reboot</div>
-  <canvas id="game" width="896" height="684"></canvas>
+  <main class="rig" data-pol="pos" id="rig">
+    <header class="masthead">
+      <div>
+        <h1>Snek <span>Volt</span></h1>
+        <p class="tagline">Steer a live copper trace. Flip charge to pull in capacitors, overclock to sprint, and absorb EMP rings.</p>
+      </div>
+      <div class="toggles">
+        <button type="button" class="btn" id="sound" role="switch" aria-checked="false"><span class="led" aria-hidden="true"></span><span id="sound-label">Sound off</span></button>
+        <button type="button" class="btn" id="pause" disabled>Pause</button>
+      </div>
+    </header>
+
+    <section class="sect stats" aria-label="Score and charge">
+      <div class="stats-grid">
+        <dl class="stat stat--score"><dt>Score</dt><dd id="score">0000</dd></dl>
+        <dl class="stat"><dt id="best-label">Best at 16 MHz</dt><dd id="best">0000</dd></dl>
+        <dl class="stat"><dt>Length</dt><dd id="length">4</dd></dl>
+      </div>
+      <div class="polarity-row">
+        <div class="pol-badge" aria-hidden="true">
+          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 9h12"/><path class="plus-v" d="M9 3v12"/></svg>
+        </div>
+        <div class="polarity-text"><span id="pol-name">Positive</span><small>Opposite charge pulls capacitors in for double score</small></div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-head"><span>Overclock charge</span><span class="meter-value" id="charge-num">65%</span></div>
+        <div class="meter" id="charge-meter" role="meter" aria-label="Overclock charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="65"><i></i></div>
+      </div>
+    </section>
+
+    <section class="board-area" aria-label="Game board">
+      <div class="board-wrap">
+        <canvas id="board" width="896" height="616" role="img" aria-label="Circuit board playfield. Steer the copper trace to collect capacitors. Your score and charge are listed beside the board."></canvas>
+        <div class="overlay is-open" id="overlay" data-state="ready">
+          <div class="overlay-body" role="group" aria-labelledby="ov-title">
+            <h2 id="ov-title">Board is cold</h2>
+            <p id="ov-text">Press an arrow key or tap a direction button to energise the board.</p>
+            <button type="button" class="btn btn--primary" id="ov-action">Energise board</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sect controls" aria-label="On-screen controls">
+      <div class="pad">
+        <div class="dpad" role="group" aria-label="Direction pad">
+          <button type="button" class="btn" data-dir="up" aria-label="Up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+          <button type="button" class="btn" data-dir="left" aria-label="Left"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+          <span class="dpad-hub" aria-hidden="true"></span>
+          <button type="button" class="btn" data-dir="right" aria-label="Right"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+          <button type="button" class="btn" data-dir="down" aria-label="Down"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn" id="btn-pol">Polarity</button>
+          <button type="button" class="btn" id="btn-dash" aria-label="Overclock, hold to sprint">Overclock</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sect scope" aria-label="Oscilloscope">
+      <h2>Rail voltage<small>simulated</small></h2>
+      <canvas id="scope" width="320" height="132" role="img" aria-label="Oscilloscope trace of the simulated supply rail. Ripple grows with snake length, clock speed and overclock load."></canvas>
+      <dl class="readouts">
+        <div><dt>Rail</dt><dd id="ro-rail">3.30 V</dd></div>
+        <div><dt>Ripple</dt><dd id="ro-ripple">0 mVpp</dd></div>
+        <div><dt>Clock</dt><dd id="ro-clock">16 MHz</dd></div>
+      </dl>
+      <p class="note">The rail is a simulation. Ripple is measured from the trace shown and rises with length, clock and overclock load. EMP hits cause a brownout.</p>
+    </section>
+
+    <section class="sect clock" aria-label="Clock frequency">
+      <h2>Clock frequency<small id="clock-hint">Pick before a run</small></h2>
+      <div class="seg" role="group" aria-label="Clock frequency">
+        <button type="button" class="btn" data-clock="0" aria-pressed="false">8 MHz</button>
+        <button type="button" class="btn" data-clock="1" aria-pressed="true">16 MHz</button>
+        <button type="button" class="btn" data-clock="2" aria-pressed="false">24 MHz</button>
+      </div>
+      <p class="note">A faster clock steps the snake faster. Best scores are kept separately for each clock.</p>
+    </section>
+
+    <section class="sect keys" aria-label="Keyboard controls">
+      <h2>Keyboard</h2>
+      <dl>
+        <dt>Steer</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>Arrows</kbd></dd>
+        <dt>Flip polarity</dt><dd><kbd>Space</kbd></dd>
+        <dt>Overclock</dt><dd><kbd>Shift</kbd> hold</dd>
+        <dt>Clock</dt><dd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> before a run</dd>
+        <dt>Pause</dt><dd><kbd>P</kbd></dd>
+        <dt>Reboot</dt><dd><kbd>R</kbd></dd>
+      </dl>
+    </section>
+  </main>
+
+  <div class="sr-only" id="status" role="status" aria-live="polite"></div>
+  <noscript><p style="padding:16px">Snek Volt needs JavaScript to run.</p></noscript>
+
   <script>
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
-    const GW = 32, GH = 22, CELL = 28, HUD = 68;
-    let snake, dir, nextDir, polarity, score, charge, overclock, gameOver, orbs, rings, traces;
-    const portals = [{x: 5, y: 5}, {x: GW - 6, y: GH - 6}];
-    const keys = {};
+  (() => {
+    "use strict";
+
+    /* ---------- Constants ---------- */
+    const GW = 32, GH = 22, CELL = 28, BW = GW * CELL, BH = GH * CELL;
+    const CLOCKS = [{ mhz: 8, rate: 6.5 }, { mhz: 16, rate: 8.5 }, { mhz: 24, rate: 11 }];
+    const DASH_RATE = 1.75, DASH_DRAIN = 26, CHARGE_REGEN = 4.5, DASH_MIN = 2;
+    const DIRS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
+    const PORTALS = [{ x: 5, y: 5 }, { x: GW - 6, y: GH - 6 }];
+    const STORE_KEY = "snekvolt.best.v1";
+    const KEYMAP = {
+      ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
+      ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right"
+    };
+
+    /* ---------- Design tokens read from CSS ---------- */
+    const cssRoot = getComputedStyle(document.documentElement);
+    const tok = name => cssRoot.getPropertyValue(name).trim();
+    const T = {
+      mask: tok("--mask-900"), lift: tok("--mask-lift"), grid: tok("--grid"),
+      copper: tok("--copper"), copperHi: tok("--copper-hi"), copperLo: tok("--copper-lo"), copperEdge: tok("--copper-edge"),
+      silkDim: tok("--silk-dim"),
+      pos: tok("--pos"), posLo: tok("--pos-lo"), neg: tok("--neg"), negLo: tok("--neg-lo"),
+      portalA: tok("--portal-a"), portalB: tok("--portal-b"), danger: tok("--danger"),
+      scopeBg: tok("--scope-bg"), scopeGrat: tok("--scope-grat"), scopeMajor: tok("--scope-grat-major"),
+      phosphor: tok("--phosphor"), phosphorDim: tok("--phosphor-dim"),
+      white: "#ffffff",
+      fontData: tok("--font-data")
+    };
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function hexToRgb(h) {
+      const n = parseInt(h.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    function mix(a, b, t) {
+      const A = hexToRgb(a), B = hexToRgb(b);
+      return `rgb(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)})`;
+    }
+
+    /* ---------- DOM ---------- */
+    const $ = id => document.getElementById(id);
+    const rig = $("rig"), board = $("board"), bctx = board.getContext("2d");
+    const scopeCv = $("scope"), sctx = scopeCv.getContext("2d");
+    const el = {
+      score: $("score"), best: $("best"), bestLabel: $("best-label"), length: $("length"),
+      polName: $("pol-name"), chargeNum: $("charge-num"), chargeMeter: $("charge-meter"),
+      roRail: $("ro-rail"), roRipple: $("ro-ripple"), roClock: $("ro-clock"),
+      overlay: $("overlay"), ovTitle: $("ov-title"), ovText: $("ov-text"), ovAction: $("ov-action"),
+      sound: $("sound"), soundLabel: $("sound-label"), pause: $("pause"),
+      status: $("status"), clockHint: $("clock-hint"),
+      btnPol: $("btn-pol"), btnDash: $("btn-dash")
+    };
+    const clockBtns = Array.from(document.querySelectorAll("[data-clock]"));
+
+    /* ---------- Persistence (high scores, one per clock) ---------- */
+    let storageOk = true;
+    function loadBest() {
+      const out = { 8: 0, 16: 0, 24: 0 };
+      try {
+        const raw = window.localStorage.getItem(STORE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          for (const k of Object.keys(out)) {
+            const v = Number(parsed && parsed[k]);
+            if (Number.isFinite(v) && v > 0) out[k] = Math.floor(v);
+          }
+        }
+      } catch (e) { storageOk = false; }
+      return out;
+    }
+    function saveBest() {
+      try { window.localStorage.setItem(STORE_KEY, JSON.stringify(best)); }
+      catch (e) { storageOk = false; }
+    }
+    const best = loadBest();
+
+    /* ---------- Game state ---------- */
+    let mode = "ready"; // ready | run | paused | over
+    let clockIdx = 1;
+    let snake, dir, queue, polarity, score, charge, dashLock, orbs, rings, traces, newBest;
+    let accum = 0, animT = 0, dashing = false, shiftHeld = false, touchDash = false;
+
+    const rnd = n => Math.floor(Math.random() * n);
 
     function reset() {
-      const cx = 16, cy = 11;
-      snake = [{x: cx, y: cy}, {x: cx-1, y: cy}, {x: cx-2, y: cy}, {x: cx-3, y: cy}];
-      dir = {x: 1, y: 0}; nextDir = {x: 1, y: 0};
-      polarity = 1; score = 0; charge = 65; overclock = false; gameOver = false;
-      orbs = []; rings = []; traces = new Set();
+      const cx = GW >> 1, cy = GH >> 1;
+      snake = [{ x: cx, y: cy }, { x: cx - 1, y: cy }, { x: cx - 2, y: cy }, { x: cx - 3, y: cy }];
+      dir = DIRS.right; queue = [];
+      polarity = 1; score = 0; charge = 65; dashLock = false; newBest = false;
+      orbs = []; rings = []; traces = new Map();
+      accum = 0; dashing = false;
       for (let i = 0; i < 4; i++) spawnOrb();
+      mode = "ready";
+      rail.reset();
     }
 
+    function isFree(x, y) {
+      return !snake.some(s => s.x === x && s.y === y)
+        && !PORTALS.some(p => p.x === x && p.y === y)
+        && !orbs.some(o => o.x === x && o.y === y);
+    }
     function spawnOrb() {
-      orbs.push({
-        x: 2 + Math.floor(Math.random() * (GW - 4)),
-        y: 2 + Math.floor(Math.random() * (GH - 4)),
-        polarity: Math.random() < 0.5 ? 1 : -1,
-        value: [10, 15, 25][Math.floor(Math.random() * 3)]
-      });
+      for (let n = 0; n < 300; n++) {
+        const x = 1 + rnd(GW - 2), y = 1 + rnd(GH - 2);
+        if (isFree(x, y)) {
+          orbs.push({ x, y, polarity: Math.random() < 0.5 ? 1 : -1, value: [10, 15, 25][rnd(3)] });
+          return;
+        }
+      }
+    }
+    function spawnEmp() {
+      const head = snake[0];
+      for (let n = 0; n < 30; n++) {
+        const x = 4 + rnd(GW - 8), y = 4 + rnd(GH - 8);
+        if (Math.abs(x - head.x) + Math.abs(y - head.y) >= 6) {
+          rings.push({ x, y, r: 0.4, maxR: 4.8, polarity: Math.random() < 0.5 ? 1 : -1 });
+          return;
+        }
+      }
     }
 
-    window.addEventListener("keydown", e => {
-      keys[e.code] = true;
-      if ((e.code === "ArrowUp" || e.code === "KeyW") && dir.y !== 1) nextDir = {x: 0, y: -1};
-      if ((e.code === "ArrowDown" || e.code === "KeyS") && dir.y !== -1) nextDir = {x: 0, y: 1};
-      if ((e.code === "ArrowLeft" || e.code === "KeyA") && dir.x !== 1) nextDir = {x: -1, y: 0};
-      if ((e.code === "ArrowRight" || e.code === "KeyD") && dir.x !== -1) nextDir = {x: 1, y: 0};
-      if (e.code === "Space") { e.preventDefault(); polarity *= -1; }
-      if (e.code === "KeyR" && gameOver) reset();
-    });
-    window.addEventListener("keyup", e => { keys[e.code] = false; });
+    function addTrace(x1, y1, x2, y2) {
+      const adjacent = Math.abs(x1 - x2) + Math.abs(y1 - y2) === 1;
+      const seg = adjacent ? [x1, y1, x2, y2] : [x1, y1, x1, y1];
+      traces.set(seg.join(","), seg);
+    }
+
+    function pullOrbs(hx, hy) {
+      for (const o of orbs) {
+        const d = Math.abs(hx - o.x) + Math.abs(hy - o.y);
+        if (d <= 3 && d > 0 && o.polarity !== polarity) {
+          const nx = o.x + Math.sign(hx - o.x), ny = o.y + Math.sign(hy - o.y);
+          if (!PORTALS.some(p => p.x === nx && p.y === ny)) { o.x = nx; o.y = ny; }
+        }
+      }
+    }
 
     function step() {
-      if (gameOver) return;
-      dir = nextDir;
-      let nx = (snake[0].x + dir.x + GW) % GW;
-      let ny = (snake[0].y + dir.y + GH) % GH;
-      if (nx === portals[0].x && ny === portals[0].y) { nx = (portals[1].x + dir.x + GW) % GW; ny = (portals[1].y + dir.y + GH) % GH; score += 5; }
-      else if (nx === portals[1].x && ny === portals[1].y) { nx = (portals[0].x + dir.x + GW) % GW; ny = (portals[0].y + dir.y + GH) % GH; score += 5; }
-      if (snake.slice(0, -1).some(s => s.x === nx && s.y === ny)) { gameOver = true; return; }
-      if (overclock && charge > 2) traces.add(`${snake[0].x},${snake[0].y}`);
-      snake.unshift({x: nx, y: ny});
-
-      orbs.forEach(o => {
-        const d = Math.abs(nx - o.x) + Math.abs(ny - o.y);
-        if (d <= 3 && d > 0 && o.polarity !== polarity) {
-          o.x += Math.sign(nx - o.x);
-          o.y += Math.sign(ny - o.y);
-        }
-      });
-
+      if (queue.length) dir = queue.shift();
+      const head = snake[0];
+      let nx = (head.x + dir.x + GW) % GW, ny = (head.y + dir.y + GH) % GH;
+      const pi = PORTALS.findIndex(p => p.x === nx && p.y === ny);
+      if (pi !== -1) {
+        const out = PORTALS[1 - pi];
+        nx = (out.x + dir.x + GW) % GW; ny = (out.y + dir.y + GH) % GH;
+        score += 5;
+        emit("portal");
+      }
+      if (snake.slice(0, -1).some(s => s.x === nx && s.y === ny)) { fault(); return; }
+      if (dashing) addTrace(head.x, head.y, nx, ny);
+      snake.unshift({ x: nx, y: ny });
+      pullOrbs(nx, ny);
       const idx = orbs.findIndex(o => o.x === nx && o.y === ny);
       if (idx !== -1) {
         const o = orbs[idx];
-        score += o.value * (o.polarity !== polarity ? 2 : 1);
+        const bonus = o.polarity !== polarity;
+        score += o.value * (bonus ? 2 : 1);
         charge = Math.min(100, charge + 22);
         orbs.splice(idx, 1);
         spawnOrb();
-        if (Math.random() < 0.45) rings.push({x: 4 + Math.floor(Math.random()*(GW-8)), y: 4 + Math.floor(Math.random()*(GH-8)), r: 0.4, maxR: 4.8, polarity: Math.random() < 0.5 ? 1 : -1});
+        if (Math.random() < 0.45) spawnEmp();
+        emit(bonus ? "capture-bonus" : "capture");
       } else {
         snake.pop();
       }
     }
 
-    let accum = 0, last = performance.now();
+    function updateRings(dt) {
+      const h = snake[0];
+      for (const ring of rings.slice()) {
+        ring.r += dt * 3.4;
+        const d = Math.hypot(h.x - ring.x, h.y - ring.y);
+        if (Math.abs(d - ring.r) < 0.55) {
+          rings.splice(rings.indexOf(ring), 1);
+          if (ring.polarity === polarity) {
+            score += 20; charge = Math.min(100, charge + 15);
+            emit("absorb");
+          } else {
+            emit("emp");
+            if (snake.length > 3) snake.pop(); else { fault(); return; }
+          }
+        } else if (ring.r >= ring.maxR) {
+          rings.splice(rings.indexOf(ring), 1);
+        }
+      }
+    }
+
+    function fault() {
+      mode = "over";
+      dashing = false;
+      const mhz = CLOCKS[clockIdx].mhz;
+      if (score > best[mhz]) {
+        best[mhz] = score;
+        newBest = true;
+        saveBest();
+      }
+      emit(newBest ? "newbest" : "over");
+      announce(`Circuit fault. Score ${score}${newBest ? ", new best" : ""}.`);
+    }
+
+    /* ---------- Rail voltage simulation (drives the oscilloscope) ---------- */
+    const rail = (() => {
+      const N = 320, H = 1 / 120;
+      const buf = new Float32Array(N).fill(3300);
+      let head = 0, acc = 0, t = 0, amp = 10, sag = 0;
+      let trans = [];
+      const KICKS = {
+        capture: { a: 34, tau: 0.09, f: 9 },
+        "capture-bonus": { a: 54, tau: 0.11, f: 9 },
+        absorb: { a: 72, tau: 0.12, f: 7 },
+        emp: { a: -130, tau: 0.22, f: 5 },
+        portal: { a: 44, tau: 0.05, f: 22 },
+        flip: { a: -18, tau: 0.05, f: 18 },
+        dash: { a: -42, tau: 0.15, f: 0 }
+      };
+      function sample(st) {
+        const over = st.mode === "over", ready = st.mode === "ready";
+        const targetAmp = over ? 0 : ready ? 10 : 12 + st.len * 1.3 + st.mhz * 1.25 + (st.dash ? 42 : 0);
+        const targetSag = over ? 3300 : ready ? 0 : (st.len - 4) * 0.9 + st.mhz * 0.6 + (st.dash ? 55 : 0);
+        const k = 1 - Math.exp(-H / (over ? 0.25 : 0.12));
+        amp += (targetAmp - amp) * k;
+        sag += (targetSag - sag) * k;
+        const f = 5 * st.mhz / 8;
+        const ph = (t * f) % 1;
+        const tri = 1 - 4 * Math.abs(ph - 0.5);
+        const w = 0.8 * tri + 0.2 * Math.sin(2 * Math.PI * ph * 3 + 0.6);
+        let v = 3300 - sag + (amp / 2) * w + (Math.random() - 0.5) * amp * 0.16;
+        trans = trans.filter(x => t - x.t0 < x.tau * 6);
+        for (const x of trans) v += x.a * Math.exp(-(t - x.t0) / x.tau) * (x.f ? Math.cos(2 * Math.PI * x.f * (t - x.t0)) : 1);
+        buf[head] = v;
+        head = (head + 1) % N;
+      }
+      return {
+        N, buf,
+        get head() { return head; },
+        reset() { trans = []; amp = 10; sag = 0; },
+        kick(type) { const k = KICKS[type]; if (k) trans.push({ t0: t, a: k.a, tau: k.tau, f: k.f }); },
+        update(dt, st) {
+          acc += dt;
+          while (acc >= H) { acc -= H; t += H; sample(st); }
+        },
+        measure() {
+          let lo = Infinity, hi = -Infinity, sum = 0;
+          const n = 120;
+          for (let i = 0; i < n; i++) {
+            const v = buf[(head - 1 - i + N * 2) % N];
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+            sum += v;
+          }
+          return { mean: sum / n, vpp: hi - lo };
+        }
+      };
+    })();
+
+    /* ---------- WebAudio synthesizer ---------- */
+    const Sfx = (() => {
+      let ac = null, master = null, droneGain = null, droneLp = null, o1 = null, o2 = null, on = false;
+      let lastDrone = "";
+      const BASE = [55, 73.42, 110];
+      function ensure() {
+        if (ac) { if (ac.state === "suspended") ac.resume(); return true; }
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        ac = new AC();
+        master = ac.createGain(); master.gain.value = 0.18;
+        const comp = ac.createDynamicsCompressor();
+        master.connect(comp); comp.connect(ac.destination);
+        o1 = ac.createOscillator(); o1.type = "sawtooth";
+        o2 = ac.createOscillator(); o2.type = "square"; o2.detune.value = 7;
+        droneLp = ac.createBiquadFilter(); droneLp.type = "lowpass"; droneLp.frequency.value = 260; droneLp.Q.value = 4;
+        droneGain = ac.createGain(); droneGain.gain.value = 0.0001;
+        o1.connect(droneLp); o2.connect(droneLp); droneLp.connect(droneGain); droneGain.connect(master);
+        const lfo = ac.createOscillator(); lfo.frequency.value = 5;
+        const lfoGain = ac.createGain(); lfoGain.gain.value = 40;
+        lfo.connect(lfoGain); lfoGain.connect(droneLp.frequency);
+        o1.frequency.value = BASE[1]; o2.frequency.value = BASE[1] * 2;
+        o1.start(); o2.start(); lfo.start();
+        return true;
+      }
+      function blip(freq, dur, type, vol, delay, endFreq) {
+        const t = ac.currentTime + (delay || 0);
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = type || "square";
+        o.frequency.setValueAtTime(freq, t);
+        if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(vol || 0.4, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g); g.connect(master);
+        o.start(t); o.stop(t + dur + 0.03);
+      }
+      function noise(dur, vol, f0, f1) {
+        const len = Math.max(1, Math.floor(ac.sampleRate * dur));
+        const b = ac.createBuffer(1, len, ac.sampleRate);
+        const d = b.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        const src = ac.createBufferSource(); src.buffer = b;
+        const f = ac.createBiquadFilter(); f.type = "lowpass";
+        const t = ac.currentTime;
+        f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+        const g = ac.createGain();
+        g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        src.connect(f); f.connect(g); g.connect(master);
+        src.start(t);
+      }
+      const SOUNDS = {
+        capture() { blip(523, 0.07, "triangle", 0.4); blip(659, 0.09, "triangle", 0.4, 0.06); },
+        "capture-bonus"() { [523, 659, 784, 1047].forEach((f, i) => blip(f, 0.09, "triangle", 0.42, i * 0.055)); },
+        flip() { blip(330, 0.08, "square", 0.16, 0, 495); },
+        portal() { blip(220, 0.22, "sine", 0.4, 0, 880); blip(330, 0.22, "sine", 0.18, 0.02, 1320); },
+        absorb() { blip(600, 0.14, "triangle", 0.4, 0, 1500); },
+        emp() { noise(0.28, 0.5, 1400, 120); blip(140, 0.26, "sawtooth", 0.3, 0, 55); },
+        over() { blip(330, 0.7, "sawtooth", 0.3, 0, 48); noise(0.5, 0.25, 900, 80); },
+        newbest() { [659, 784, 988, 1319].forEach((f, i) => blip(f, 0.14, "triangle", 0.4, i * 0.09)); },
+        start() { blip(196, 0.1, "square", 0.18, 0, 392); },
+        click() { blip(1000, 0.03, "square", 0.2); }
+      };
+      return {
+        get on() { return on; },
+        enable() {
+          if (!ensure()) return false;
+          on = true; lastDrone = ""; SOUNDS.click(); return true;
+        },
+        disable() {
+          on = false;
+          if (droneGain) droneGain.gain.setTargetAtTime(0.0001, ac.currentTime, 0.05);
+        },
+        play(name) { if (on && SOUNDS[name]) SOUNDS[name](); },
+        drone(active, idx, isDashing) {
+          if (!on || !droneGain) return;
+          const key = `${active}|${idx}|${isDashing}`;
+          if (key === lastDrone) return;
+          lastDrone = key;
+          const t = ac.currentTime, base = BASE[idx] * (isDashing ? 1.5 : 1);
+          o1.frequency.setTargetAtTime(base, t, 0.08);
+          o2.frequency.setTargetAtTime(base * 2, t, 0.08);
+          droneLp.frequency.setTargetAtTime(isDashing ? 900 : 260, t, 0.08);
+          droneGain.gain.setTargetAtTime(active ? (isDashing ? 0.06 : 0.04) : 0.0001, t, 0.1);
+        }
+      };
+    })();
+
+    function emit(type) {
+      Sfx.play(type);
+      rail.kick(type);
+    }
+    function announce(msg) { el.status.textContent = msg; }
+
+    /* ---------- Input ---------- */
+    function pushDir(name) {
+      const d = DIRS[name];
+      if (!d) return;
+      if (mode === "ready") startRun();
+      if (mode !== "run") return;
+      const last = queue.length ? queue[queue.length - 1] : dir;
+      if ((d.x === last.x && d.y === last.y) || (d.x === -last.x && d.y === -last.y)) return;
+      if (queue.length < 2) queue.push(d);
+    }
+    function startRun() {
+      if (mode !== "ready") return;
+      mode = "run";
+      Sfx.play("start");
+      announce(`Board energised at ${CLOCKS[clockIdx].mhz} megahertz.`);
+    }
+    function flipPolarity() {
+      if (mode !== "run") return;
+      polarity *= -1;
+      emit("flip");
+    }
+    function togglePause() {
+      if (mode === "run") { mode = "paused"; announce("Paused."); }
+      else if (mode === "paused") { mode = "run"; announce("Resumed."); }
+    }
+    function reboot() {
+      reset();
+      announce("Circuit rebooted. Ready.");
+    }
+    function setClock(idx) {
+      if (mode === "run" || mode === "paused") return;
+      if (idx === clockIdx && mode === "ready") return;
+      clockIdx = idx;
+      reset();
+      announce(`Clock set to ${CLOCKS[idx].mhz} megahertz.`);
+    }
+    function primaryAction() {
+      if (mode === "ready") startRun();
+      else if (mode === "paused") togglePause();
+      else if (mode === "over") reboot();
+    }
+
+    function isButton(t) { return t instanceof Element && !!t.closest("button"); }
+
+    window.addEventListener("keydown", e => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const name = KEYMAP[e.code];
+      if (name) { e.preventDefault(); pushDir(name); return; }
+      switch (e.code) {
+        case "Space":
+          if (isButton(e.target)) return;
+          e.preventDefault();
+          if (!e.repeat) flipPolarity();
+          break;
+        case "ShiftLeft": case "ShiftRight":
+          shiftHeld = true; break;
+        case "KeyP": case "Escape":
+          if (!e.repeat) togglePause(); break;
+        case "KeyR":
+          if ((mode === "over" || mode === "paused") && !e.repeat) reboot(); break;
+        case "Enter":
+          if (isButton(e.target)) return;
+          if (!e.repeat) primaryAction();
+          break;
+        case "Digit1": case "Numpad1": setClock(0); break;
+        case "Digit2": case "Numpad2": setClock(1); break;
+        case "Digit3": case "Numpad3": setClock(2); break;
+      }
+    });
+    window.addEventListener("keyup", e => {
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight") shiftHeld = false;
+    });
+    window.addEventListener("blur", () => { shiftHeld = false; holdDash(false); });
+    document.addEventListener("visibilitychange", () => { if (document.hidden && mode === "run") togglePause(); });
+
+    // Controls act on pointerdown for instant response. A mouse press never takes keyboard focus,
+    // so Space and the arrow keys keep steering the game. Keyboard activation arrives as click with detail 0.
+    function bindPress(btn, fn) {
+      btn.addEventListener("mousedown", e => e.preventDefault());
+      btn.addEventListener("pointerdown", e => { if (e.pointerType === "mouse" && e.button !== 0) return; e.preventDefault(); fn(); });
+      btn.addEventListener("click", e => { if (e.detail === 0) fn(); });
+    }
+    document.querySelectorAll(".dpad [data-dir]").forEach(b => bindPress(b, () => pushDir(b.dataset.dir)));
+    bindPress(el.btnPol, flipPolarity);
+
+    function holdDash(on) { touchDash = on; el.btnDash.classList.toggle("is-held", on); }
+    el.btnDash.addEventListener("mousedown", e => e.preventDefault());
+    el.btnDash.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      try { el.btnDash.setPointerCapture(e.pointerId); } catch (err) { /* capture is optional */ }
+      holdDash(true);
+    });
+    ["pointerup", "pointercancel", "lostpointercapture"].forEach(n => el.btnDash.addEventListener(n, () => holdDash(false)));
+    el.btnDash.addEventListener("keydown", e => { if (e.code === "Enter" || e.code === "Space") { e.preventDefault(); holdDash(true); } });
+    el.btnDash.addEventListener("keyup", e => { if (e.code === "Enter" || e.code === "Space") holdDash(false); });
+    el.btnDash.addEventListener("contextmenu", e => e.preventDefault());
+
+    el.ovAction.addEventListener("click", primaryAction);
+    el.pause.addEventListener("click", e => { togglePause(); if (e.detail > 0) el.pause.blur(); });
+    clockBtns.forEach(b => b.addEventListener("click", e => { setClock(Number(b.dataset.clock)); if (e.detail > 0) b.blur(); }));
+    el.sound.addEventListener("click", e => {
+      if (Sfx.on) { Sfx.disable(); }
+      else if (!Sfx.enable()) { announce("This browser cannot play synthesized sound."); return; }
+      if (e.detail > 0) el.sound.blur();
+    });
+
+    /* ---------- Canvas sizing and static board layer ---------- */
+    const dpr = () => Math.min(3, window.devicePixelRatio || 1);
+    let layer = null;
+
+    function fitCanvas(cv, lw, lh) {
+      const cssW = cv.clientWidth || lw;
+      const w = Math.max(1, Math.round(cssW * dpr()));
+      const h = Math.max(1, Math.round(w * lh / lw));
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; return true; }
+      return false;
+    }
+
+    const ROUTES = [
+      [[0, 1], [10, 1], [12, 3], [20, 3]],
+      [[0, 3], [6, 3], [8, 5], [8, 9], [6, 11], [0, 11]],
+      [[31, 2], [25, 2], [23, 4], [23, 7]],
+      [[31, 5], [27, 5], [25, 7], [25, 12], [27, 14], [31, 14]],
+      [[0, 17], [5, 17], [7, 19], [14, 19], [16, 21]],
+      [[31, 19], [25, 19], [23, 21]],
+      [[0, 14], [3, 14], [5, 16]],
+      [[17, 0], [17, 2], [19, 4]],
+      [[13, 21], [13, 17], [15, 15]]
+    ];
+    const cc = v => v * CELL + CELL / 2;
+
+    function polyline(c, pts) {
+      c.beginPath();
+      pts.forEach((p, i) => (i ? c.lineTo(cc(p[0]), cc(p[1])) : c.moveTo(cc(p[0]), cc(p[1]))));
+    }
+    function pad(c, x, y, r, hole) {
+      c.fillStyle = T.copperEdge; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+      c.fillStyle = T.mask; c.beginPath(); c.arc(x, y, hole, 0, Math.PI * 2); c.fill();
+    }
+
+    function buildLayer() {
+      layer = document.createElement("canvas");
+      layer.width = board.width; layer.height = board.height;
+      const c = layer.getContext("2d");
+      const s = board.width / BW;
+      c.setTransform(s, 0, 0, s, 0, 0);
+      c.lineCap = "round"; c.lineJoin = "round";
+
+      const g = c.createRadialGradient(BW / 2, BH / 2, 60, BW / 2, BH / 2, BW * 0.62);
+      g.addColorStop(0, T.lift); g.addColorStop(1, T.mask);
+      c.fillStyle = g; c.fillRect(0, 0, BW, BH);
+
+      c.strokeStyle = T.grid; c.lineWidth = 1; c.beginPath();
+      for (let x = 1; x < GW; x++) { c.moveTo(x * CELL, 0); c.lineTo(x * CELL, BH); }
+      for (let y = 1; y < GH; y++) { c.moveTo(0, y * CELL); c.lineTo(BW, y * CELL); }
+      c.stroke();
+
+      c.fillStyle = T.copperLo;
+      for (let x = 0; x < GW; x++) for (let y = 0; y < GH; y++) { c.beginPath(); c.arc(cc(x), cc(y), 1.5, 0, Math.PI * 2); c.fill(); }
+
+      // Dim routed traces: the board's own wiring, quieter than anything you can touch.
+      for (const r of ROUTES) {
+        polyline(c, r); c.strokeStyle = T.copperLo; c.lineWidth = 5; c.stroke();
+        polyline(c, r); c.strokeStyle = T.copperEdge; c.lineWidth = 1; c.stroke();
+        pad(c, cc(r[0][0]), cc(r[0][1]), 5, 2);
+        const e = r[r.length - 1]; pad(c, cc(e[0]), cc(e[1]), 5, 2);
+        for (let i = 1; i < r.length - 1; i++) pad(c, cc(r[i][0]), cc(r[i][1]), 3.2, 1.2);
+      }
+
+      // Silkscreen: IC outlines, passives, reference designators.
+      c.strokeStyle = T.silkDim; c.fillStyle = T.silkDim; c.lineWidth = 1.5;
+      c.font = `600 9px ${T.fontData}`; c.textBaseline = "alphabetic";
+      const ic = (x0, y0, w, h, label, pins) => {
+        const X = x0 * CELL, Y = y0 * CELL, W = w * CELL, Hh = h * CELL;
+        c.strokeRect(X, Y, W, Hh);
+        c.beginPath(); c.arc(X + 9, Y + 9, 3, 0, Math.PI * 2); c.stroke();
+        c.fillText(label, X + 2, Y - 4);
+        c.fillStyle = T.copperEdge;
+        for (let i = 0; i < pins; i++) {
+          const py = Y + (Hh / pins) * (i + 0.5) - 3;
+          c.fillRect(X - 7, py, 7, 6); c.fillRect(X + W, py, 7, 6);
+        }
+        c.fillStyle = T.silkDim;
+      };
+      ic(26, 8, 3, 4, "U1", 4);
+      ic(1, 6, 3, 3, "U2", 3);
+      const passive = (x0, y0, w, label) => {
+        const X = x0 * CELL, Y = y0 * CELL + 6;
+        c.strokeRect(X, Y, w * CELL, 16);
+        c.fillText(label, X + 2, Y - 4);
+        c.fillStyle = T.copperEdge; c.fillRect(X - 6, Y + 4, 6, 8); c.fillRect(X + w * CELL, Y + 4, 6, 8); c.fillStyle = T.silkDim;
+      };
+      passive(21, 20, 2, "R14");
+      passive(8, 0, 2, "C7");
+      passive(27, 16, 2, "R3");
+      c.fillText("SNEK VOLT REV A", 9 * CELL, BH - 6);
+
+      // Mounting holes and board edge.
+      for (const [mx, my] of [[0.5, 0.5], [GW - 0.5, 0.5], [0.5, GH - 0.5], [GW - 0.5, GH - 0.5]]) {
+        c.fillStyle = T.copperEdge; c.beginPath(); c.arc(mx * CELL, my * CELL, 9, 0, Math.PI * 2); c.fill();
+        c.fillStyle = T.mask; c.beginPath(); c.arc(mx * CELL, my * CELL, 5, 0, Math.PI * 2); c.fill();
+      }
+      c.strokeStyle = T.copperEdge; c.lineWidth = 2; c.strokeRect(1, 1, BW - 2, BH - 2);
+    }
+
+    /* ---------- Board drawing ---------- */
+    function snakeLinks() {
+      const out = [];
+      for (let i = 0; i < snake.length - 1; i++) {
+        const a = snake[i], b = snake[i + 1];
+        if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1) out.push({ a, b, i });
+      }
+      return out;
+    }
+    function roundRect(c, x, y, w, h, r) {
+      c.beginPath();
+      c.moveTo(x + r, y);
+      c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+      c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r);
+      c.closePath();
+    }
+
+    function drawBoard() {
+      const s = board.width / BW;
+      if (!layer || layer.width !== board.width || layer.height !== board.height) buildLayer();
+      bctx.setTransform(1, 0, 0, 1, 0, 0);
+      bctx.drawImage(layer, 0, 0);
+      bctx.setTransform(s, 0, 0, s, 0, 0);
+      bctx.lineCap = "round"; bctx.lineJoin = "round";
+
+      const pol = polarity > 0 ? T.pos : T.neg, polLo = polarity > 0 ? T.posLo : T.negLo;
+
+      // Laid copper from overclock: bright, thick, tinned highlight.
+      if (traces.size) {
+        for (const [w, col] of [[7, T.copper], [2, T.copperHi]]) {
+          bctx.strokeStyle = col; bctx.lineWidth = w; bctx.beginPath();
+          traces.forEach(t => { bctx.moveTo(cc(t[0]), cc(t[1])); bctx.lineTo(cc(t[2]), cc(t[3])); });
+          bctx.stroke();
+        }
+      }
+
+      // Phase relay vias.
+      PORTALS.forEach((p, i) => {
+        const x = cc(p.x), y = cc(p.y), col = i === 0 ? T.portalA : T.portalB;
+        bctx.strokeStyle = T.copperHi; bctx.lineWidth = 3; bctx.beginPath(); bctx.arc(x, y, 12.5, 0, Math.PI * 2); bctx.stroke();
+        bctx.strokeStyle = col; bctx.lineWidth = 2.5; bctx.beginPath(); bctx.arc(x, y, 8.5, 0, Math.PI * 2); bctx.stroke();
+        bctx.fillStyle = T.mask; bctx.beginPath(); bctx.arc(x, y, 4, 0, Math.PI * 2); bctx.fill();
+        bctx.save(); bctx.setLineDash([5, 5]); bctx.lineDashOffset = reduceMotion ? 0 : -animT * 14; bctx.lineWidth = 1.5; bctx.strokeStyle = col;
+        bctx.beginPath(); bctx.arc(x, y, 16.5, 0, Math.PI * 2); bctx.stroke(); bctx.restore();
+      });
+
+      // Capacitor orbs: SMD electrolytic cans with a polarity sign.
+      for (const o of orbs) {
+        const x = cc(o.x), y = cc(o.y), col = o.polarity > 0 ? T.pos : T.neg, lo = o.polarity > 0 ? T.posLo : T.negLo;
+        const near = mode === "run" && o.polarity !== polarity && Math.abs(snake[0].x - o.x) + Math.abs(snake[0].y - o.y) <= 3;
+        if (near) {
+          bctx.save(); bctx.setLineDash([3, 4]); bctx.lineDashOffset = reduceMotion ? 0 : animT * 20;
+          bctx.strokeStyle = col; bctx.lineWidth = 1.5; bctx.beginPath(); bctx.arc(x, y, 14, 0, Math.PI * 2); bctx.stroke(); bctx.restore();
+        }
+        bctx.fillStyle = T.copperHi; bctx.fillRect(x - 13.5, y - 4, 6, 8); bctx.fillRect(x + 7.5, y - 4, 6, 8);
+        bctx.fillStyle = col; bctx.beginPath(); bctx.arc(x, y, 11.5, 0, Math.PI * 2); bctx.fill();
+        bctx.strokeStyle = lo; bctx.lineWidth = 2; bctx.beginPath(); bctx.arc(x, y, 11.5, 0, Math.PI * 2); bctx.stroke();
+        bctx.strokeStyle = mix(col, T.white, 0.5); bctx.lineWidth = 1.5; bctx.beginPath(); bctx.arc(x, y, 8.6, Math.PI * 1.1, Math.PI * 1.6); bctx.stroke();
+        bctx.strokeStyle = T.mask; bctx.lineWidth = 2.6; bctx.beginPath();
+        bctx.moveTo(x - 5, y); bctx.lineTo(x + 5, y);
+        if (o.polarity > 0) { bctx.moveTo(x, y - 5); bctx.lineTo(x, y + 5); }
+        bctx.stroke();
+      }
+
+      // EMP rings: polarity-colored, red dashed outer ring when they would hurt you.
+      for (const r of rings) {
+        const x = cc(r.x), y = cc(r.y), rad = r.r * CELL, col = r.polarity > 0 ? T.pos : T.neg;
+        bctx.globalAlpha = 0.4 + 0.6 * (1 - r.r / r.maxR);
+        bctx.strokeStyle = col; bctx.lineWidth = 3; bctx.beginPath(); bctx.arc(x, y, rad, 0, Math.PI * 2); bctx.stroke();
+        if (r.polarity !== polarity) {
+          bctx.strokeStyle = T.danger; bctx.lineWidth = 1.5; bctx.setLineDash([6, 5]);
+          bctx.beginPath(); bctx.arc(x, y, rad + 4, 0, Math.PI * 2); bctx.stroke(); bctx.setLineDash([]);
+        }
+        bctx.strokeStyle = col; bctx.lineWidth = 2;
+        for (let k = 0; k < 4; k++) {
+          const a = k * Math.PI / 2 + Math.PI / 4, mx = x + Math.cos(a) * rad, my = y + Math.sin(a) * rad;
+          bctx.beginPath(); bctx.moveTo(mx - 4, my); bctx.lineTo(mx + 4, my);
+          if (r.polarity > 0) { bctx.moveTo(mx, my - 4); bctx.lineTo(mx, my + 4); }
+          bctx.stroke();
+        }
+        bctx.globalAlpha = 1;
+      }
+
+      // Snake: a live trace with solder-mask clearance, copper body and a tinned highlight.
+      const links = snakeLinks(), n = snake.length, span = Math.max(8, n);
+      bctx.strokeStyle = T.mask; bctx.lineWidth = 19;
+      for (const l of links) { bctx.beginPath(); bctx.moveTo(cc(l.a.x), cc(l.a.y)); bctx.lineTo(cc(l.b.x), cc(l.b.y)); bctx.stroke(); }
+      bctx.fillStyle = T.mask;
+      for (const c of snake) { bctx.beginPath(); bctx.arc(cc(c.x), cc(c.y), 9.5, 0, Math.PI * 2); bctx.fill(); }
+      bctx.lineWidth = 14;
+      for (const l of links) {
+        bctx.strokeStyle = mix(pol, polLo, Math.min(1, l.i / span));
+        bctx.beginPath(); bctx.moveTo(cc(l.a.x), cc(l.a.y)); bctx.lineTo(cc(l.b.x), cc(l.b.y)); bctx.stroke();
+      }
+      snake.forEach((c, i) => {
+        bctx.fillStyle = mix(pol, polLo, Math.min(1, i / span));
+        bctx.beginPath(); bctx.arc(cc(c.x), cc(c.y), 7, 0, Math.PI * 2); bctx.fill();
+      });
+      bctx.strokeStyle = mix(pol, T.white, 0.45); bctx.lineWidth = 2;
+      for (const l of links) { bctx.beginPath(); bctx.moveTo(cc(l.a.x) - 2, cc(l.a.y) - 2); bctx.lineTo(cc(l.b.x) - 2, cc(l.b.y) - 2); bctx.stroke(); }
+
+      // Head pad with a direction notch.
+      const h = snake[0], hx = cc(h.x), hy = cc(h.y), face = queue.length ? queue[0] : dir;
+      if (dashing) { bctx.strokeStyle = T.copperHi; bctx.lineWidth = 2; bctx.strokeRect(hx - 14, hy - 14, 28, 28); }
+      bctx.fillStyle = pol; bctx.strokeStyle = mix(pol, T.white, 0.55); bctx.lineWidth = 2;
+      roundRect(bctx, hx - 11, hy - 11, 22, 22, 5); bctx.fill(); bctx.stroke();
+      bctx.fillStyle = T.mask; bctx.beginPath(); bctx.arc(hx - face.x * 2, hy - face.y * 2, 3.2, 0, Math.PI * 2); bctx.fill();
+      bctx.beginPath();
+      bctx.moveTo(hx + face.x * 11, hy + face.y * 11);
+      bctx.lineTo(hx + face.x * 5 - face.y * 4, hy + face.y * 5 + face.x * 4);
+      bctx.lineTo(hx + face.x * 5 + face.y * 4, hy + face.y * 5 - face.x * 4);
+      bctx.closePath(); bctx.fill();
+    }
+
+    /* ---------- Oscilloscope drawing ---------- */
+    const SW = 320, SH = 132, DIV_Y = SH / 6, DIV_X = SW / 8, MV_PER_DIV = 50;
+    function drawScope() {
+      const s = scopeCv.width / SW;
+      sctx.setTransform(s, 0, 0, s, 0, 0);
+      sctx.fillStyle = T.scopeBg; sctx.fillRect(0, 0, SW, SH);
+      sctx.lineWidth = 1;
+      for (let i = 1; i < 8; i++) { sctx.strokeStyle = i === 4 ? T.scopeMajor : T.scopeGrat; sctx.beginPath(); sctx.moveTo(i * DIV_X, 0); sctx.lineTo(i * DIV_X, SH); sctx.stroke(); }
+      for (let j = 1; j < 6; j++) { sctx.strokeStyle = j === 3 ? T.scopeMajor : T.scopeGrat; sctx.beginPath(); sctx.moveTo(0, j * DIV_Y); sctx.lineTo(SW, j * DIV_Y); sctx.stroke(); }
+      sctx.strokeStyle = T.scopeMajor;
+      for (let i = 0; i <= 40; i++) { const x = i * (SW / 40), tick = i % 5 ? 2 : 4; sctx.beginPath(); sctx.moveTo(x, SH / 2 - tick); sctx.lineTo(x, SH / 2 + tick); sctx.stroke(); }
+
+      const N = rail.N, buf = rail.buf, head = rail.head;
+      const trace = () => {
+        sctx.beginPath();
+        for (let i = 0; i < N; i++) {
+          const v = buf[(head + i) % N];
+          const y = Math.min(SH - 2, Math.max(2, SH / 2 - ((v - 3300) / MV_PER_DIV) * DIV_Y));
+          const x = (i / (N - 1)) * SW;
+          if (i) sctx.lineTo(x, y); else sctx.moveTo(x, y);
+        }
+      };
+      sctx.lineJoin = "round"; sctx.lineCap = "round";
+      sctx.strokeStyle = mode === "over" ? T.danger : T.phosphor;
+      sctx.globalAlpha = 0.22; sctx.lineWidth = 4; trace(); sctx.stroke();
+      sctx.globalAlpha = 1; sctx.lineWidth = 1.6; trace(); sctx.stroke();
+
+      sctx.font = `600 9px ${T.fontData}`; sctx.fillStyle = T.phosphorDim;
+      sctx.fillText("CH1  rail 3.30 V", 5, 12);
+      sctx.textAlign = "right"; sctx.fillText(`${MV_PER_DIV} mV/div`, SW - 4, SH - 5); sctx.textAlign = "left";
+    }
+
+    /* ---------- HUD ---------- */
+    const hudCache = {};
+    function setText(node, key, value) { if (hudCache[key] !== value) { hudCache[key] = value; node.textContent = value; } }
+    let lastScope = 0;
+    function readyText(mhz) { return `Press an arrow key or tap a direction button to energise the board at ${mhz} MHz.`; }
+
+    function updateHud(now) {
+      const mhz = CLOCKS[clockIdx].mhz;
+      rig.dataset.pol = polarity > 0 ? "pos" : "neg";
+      setText(el.score, "score", String(score).padStart(4, "0"));
+      setText(el.best, "best", String(best[mhz]).padStart(4, "0") + (storageOk ? "" : " (session)"));
+      setText(el.bestLabel, "bestl", `Best at ${mhz} MHz`);
+      setText(el.length, "len", String(snake.length));
+      setText(el.polName, "pol", polarity > 0 ? "Positive" : "Negative");
+      const pct = Math.floor(charge);
+      setText(el.chargeNum, "chg", `${pct}%`);
+      if (hudCache.pct !== pct) {
+        hudCache.pct = pct;
+        el.chargeMeter.style.setProperty("--pct", charge.toFixed(1));
+        el.chargeMeter.setAttribute("aria-valuenow", String(pct));
+      }
+      el.chargeMeter.classList.toggle("is-dash", dashing);
+      el.chargeMeter.classList.toggle("is-low", !dashing && charge < 15);
+      setText(el.roClock, "roclk", `${mhz} MHz`);
+      if (now - lastScope > 160) {
+        lastScope = now;
+        const m = rail.measure();
+        setText(el.roRail, "rail", `${(Math.max(0, m.mean) / 1000).toFixed(2)} V`);
+        setText(el.roRipple, "rip", `${Math.round(m.vpp)} mVpp`);
+        el.roRail.classList.toggle("is-fault", mode === "over");
+      }
+      const locked = mode === "run" || mode === "paused";
+      clockBtns.forEach((b, i) => {
+        const on = String(i === clockIdx);
+        if (b.getAttribute("aria-pressed") !== on) b.setAttribute("aria-pressed", on);
+        if (b.disabled !== locked) b.disabled = locked;
+      });
+      setText(el.clockHint, "hint", locked ? "Locked during a run" : "Pick before a run");
+      el.pause.disabled = !locked;
+      setText(el.pause, "pause", mode === "paused" ? "Resume" : "Pause");
+      el.btnPol.disabled = mode !== "run";
+      el.btnDash.disabled = mode !== "run";
+      setText(el.soundLabel, "snd", Sfx.on ? "Sound on" : "Sound off");
+      const soundState = String(Sfx.on);
+      if (el.sound.getAttribute("aria-checked") !== soundState) el.sound.setAttribute("aria-checked", soundState);
+
+      if (hudCache.ov !== mode) {
+        hudCache.ov = mode;
+        el.overlay.dataset.state = mode;
+        el.overlay.classList.toggle("is-open", mode !== "run");
+        if (mode === "ready") {
+          el.ovTitle.textContent = "Board is cold";
+          el.ovAction.textContent = "Energise board";
+        } else if (mode === "paused") {
+          el.ovTitle.textContent = "Paused";
+          el.ovText.textContent = "The rail is holding. Press P or Resume to continue.";
+          el.ovAction.textContent = "Resume";
+        } else if (mode === "over") {
+          el.ovTitle.textContent = "Circuit fault";
+          const num = document.createElement("span"); num.className = "num"; num.textContent = String(score);
+          el.ovText.textContent = "";
+          el.ovText.append("Final score ", num, newBest ? ". New best for this clock." : `. Best is ${best[mhz]}.`);
+          el.ovAction.textContent = "Reboot circuit";
+        }
+      }
+      if (mode === "ready" && el.ovText.textContent !== readyText(mhz)) el.ovText.textContent = readyText(mhz);
+    }
+
+    /* ---------- Main loop ---------- */
+    let last = performance.now();
     function loop(now) {
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
-      overclock = (keys["ShiftLeft"] || keys["ShiftRight"]) && charge > 2;
-      charge = overclock ? Math.max(0, charge - 26 * dt) : Math.min(100, charge + 4.5 * dt);
-      accum += dt * (overclock ? 15 : 8.5);
-      while (accum >= 1) { accum -= 1; step(); }
-      rings.forEach(r => r.r += dt * 3.4);
-      rings = rings.filter(r => r.r < r.maxR);
-
-      ctx.fillStyle = "#0a0e16"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = "#141c2c";
-      for (let x = 0; x < GW; x++) for (let y = 0; y < GH; y++) ctx.strokeRect(x*CELL, HUD + y*CELL, CELL, CELL);
-      ctx.fillStyle = "#10b981";
-      traces.forEach(k => { const [tx, ty] = k.split(",").map(Number); ctx.fillRect(tx*CELL+6, HUD+ty*CELL+6, CELL-12, CELL-12); });
-      portals.forEach((p, i) => {
-        ctx.strokeStyle = i === 0 ? "#a855f7" : "#ec4899"; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(p.x*CELL+14, HUD+p.y*CELL+14, 11, 0, Math.PI*2); ctx.stroke();
-      });
-      orbs.forEach(o => {
-        ctx.fillStyle = o.polarity > 0 ? "#38bdf8" : "#fbbf24";
-        ctx.beginPath(); ctx.arc(o.x*CELL+14, HUD+o.y*CELL+14, 11, 0, Math.PI*2); ctx.fill();
-      });
-      rings.forEach(r => {
-        ctx.strokeStyle = r.polarity > 0 ? "#38bdf8" : "#ef4444"; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(r.x*CELL+14, HUD+r.y*CELL+14, r.r*CELL, 0, Math.PI*2); ctx.stroke();
-      });
-      const col = polarity > 0 ? "#38bdf8" : "#fbbf24";
-      snake.forEach((s, i) => {
-        ctx.fillStyle = i === 0 ? col : (polarity > 0 ? "#0284c7" : "#d97706");
-        ctx.fillRect(s.x*CELL+2, HUD+s.y*CELL+2, CELL-4, CELL-4);
-      });
-      ctx.fillStyle = "#101624"; ctx.fillRect(0, 0, canvas.width, HUD);
-      ctx.fillStyle = col; ctx.font = "bold 16px monospace";
-      ctx.fillText(`SCORE ${String(score).padStart(4, "0")}   |   POLARITY [SPACE] ${polarity > 0 ? "POSITIVE (+)" : "NEGATIVE (-)"}`, 20, 26);
-      ctx.fillStyle = "#e2e8f0";
-      ctx.fillText(`OVERCLOCK [SHIFT] ${String(Math.floor(charge)).padStart(3, "0")}%   |   LENGTH ${snake.length}`, 20, 52);
-      if (gameOver) {
-        ctx.fillStyle = "#f87171"; ctx.font = "bold 28px monospace";
-        ctx.fillText("CIRCUIT FAULT - PRESS R TO REBOOT", 170, 360);
+      if (mode === "run") {
+        const want = shiftHeld || touchDash;
+        if (!want) dashLock = false;
+        const wasDashing = dashing;
+        dashing = want && !dashLock && charge > DASH_MIN;
+        if (dashing && !wasDashing) rail.kick("dash");
+        if (dashing) {
+          charge = Math.max(0, charge - DASH_DRAIN * dt);
+          if (charge <= DASH_MIN) { dashLock = true; dashing = false; }
+        } else {
+          charge = Math.min(100, charge + CHARGE_REGEN * dt);
+        }
+        accum += dt * CLOCKS[clockIdx].rate * (dashing ? DASH_RATE : 1);
+        while (accum >= 1 && mode === "run") { accum -= 1; step(); }
+        if (mode === "run") updateRings(dt);
+      } else {
+        dashing = false;
       }
+      if (mode !== "paused") {
+        animT += dt;
+        rail.update(dt, { mode, len: snake.length, mhz: CLOCKS[clockIdx].mhz, dash: dashing });
+      }
+      Sfx.drone(mode === "run", clockIdx, dashing);
+
+      if (fitCanvas(board, BW, BH)) layer = null;
+      fitCanvas(scopeCv, SW, SH);
+      drawBoard();
+      drawScope();
+      updateHud(now);
       requestAnimationFrame(loop);
     }
+
     reset();
     requestAnimationFrame(loop);
+  })();
   </script>
 </body>
 </html>
