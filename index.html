@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snek Volt - Electromagnetic Circuit Snake</title>
+  <style>
+    body {
+      margin: 0;
+      background: #070a10;
+      color: #e2e8f0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    .sub { color: #94a3b8; font-size: 13px; margin-bottom: 14px; }
+    canvas {
+      border: 2px solid #1e293b;
+      border-radius: 8px;
+      background: #0a0e16;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+    }
+  </style>
+</head>
+<body>
+  <h1>Snek Volt</h1>
+  <div class="sub">WASD / Arrows: Move &nbsp;|&nbsp; SPACE: Flip Polarity (+ / -) &nbsp;|&nbsp; SHIFT: Overclock Dash &nbsp;|&nbsp; R: Reboot</div>
+  <canvas id="game" width="896" height="684"></canvas>
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const GW = 32, GH = 22, CELL = 28, HUD = 68;
+    let snake, dir, nextDir, polarity, score, charge, overclock, gameOver, orbs, rings, traces;
+    const portals = [{x: 5, y: 5}, {x: GW - 6, y: GH - 6}];
+    const keys = {};
+
+    function reset() {
+      const cx = 16, cy = 11;
+      snake = [{x: cx, y: cy}, {x: cx-1, y: cy}, {x: cx-2, y: cy}, {x: cx-3, y: cy}];
+      dir = {x: 1, y: 0}; nextDir = {x: 1, y: 0};
+      polarity = 1; score = 0; charge = 65; overclock = false; gameOver = false;
+      orbs = []; rings = []; traces = new Set();
+      for (let i = 0; i < 4; i++) spawnOrb();
+    }
+
+    function spawnOrb() {
+      orbs.push({
+        x: 2 + Math.floor(Math.random() * (GW - 4)),
+        y: 2 + Math.floor(Math.random() * (GH - 4)),
+        polarity: Math.random() < 0.5 ? 1 : -1,
+        value: [10, 15, 25][Math.floor(Math.random() * 3)]
+      });
+    }
+
+    window.addEventListener("keydown", e => {
+      keys[e.code] = true;
+      if ((e.code === "ArrowUp" || e.code === "KeyW") && dir.y !== 1) nextDir = {x: 0, y: -1};
+      if ((e.code === "ArrowDown" || e.code === "KeyS") && dir.y !== -1) nextDir = {x: 0, y: 1};
+      if ((e.code === "ArrowLeft" || e.code === "KeyA") && dir.x !== 1) nextDir = {x: -1, y: 0};
+      if ((e.code === "ArrowRight" || e.code === "KeyD") && dir.x !== -1) nextDir = {x: 1, y: 0};
+      if (e.code === "Space") { e.preventDefault(); polarity *= -1; }
+      if (e.code === "KeyR" && gameOver) reset();
+    });
+    window.addEventListener("keyup", e => { keys[e.code] = false; });
+
+    function step() {
+      if (gameOver) return;
+      dir = nextDir;
+      let nx = (snake[0].x + dir.x + GW) % GW;
+      let ny = (snake[0].y + dir.y + GH) % GH;
+      if (nx === portals[0].x && ny === portals[0].y) { nx = (portals[1].x + dir.x + GW) % GW; ny = (portals[1].y + dir.y + GH) % GH; score += 5; }
+      else if (nx === portals[1].x && ny === portals[1].y) { nx = (portals[0].x + dir.x + GW) % GW; ny = (portals[0].y + dir.y + GH) % GH; score += 5; }
+      if (snake.slice(0, -1).some(s => s.x === nx && s.y === ny)) { gameOver = true; return; }
+      if (overclock && charge > 2) traces.add(`${snake[0].x},${snake[0].y}`);
+      snake.unshift({x: nx, y: ny});
+
+      orbs.forEach(o => {
+        const d = Math.abs(nx - o.x) + Math.abs(ny - o.y);
+        if (d <= 3 && d > 0 && o.polarity !== polarity) {
+          o.x += Math.sign(nx - o.x);
+          o.y += Math.sign(ny - o.y);
+        }
+      });
+
+      const idx = orbs.findIndex(o => o.x === nx && o.y === ny);
+      if (idx !== -1) {
+        const o = orbs[idx];
+        score += o.value * (o.polarity !== polarity ? 2 : 1);
+        charge = Math.min(100, charge + 22);
+        orbs.splice(idx, 1);
+        spawnOrb();
+        if (Math.random() < 0.45) rings.push({x: 4 + Math.floor(Math.random()*(GW-8)), y: 4 + Math.floor(Math.random()*(GH-8)), r: 0.4, maxR: 4.8, polarity: Math.random() < 0.5 ? 1 : -1});
+      } else {
+        snake.pop();
+      }
+    }
+
+    let accum = 0, last = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      overclock = (keys["ShiftLeft"] || keys["ShiftRight"]) && charge > 2;
+      charge = overclock ? Math.max(0, charge - 26 * dt) : Math.min(100, charge + 4.5 * dt);
+      accum += dt * (overclock ? 15 : 8.5);
+      while (accum >= 1) { accum -= 1; step(); }
+      rings.forEach(r => r.r += dt * 3.4);
+      rings = rings.filter(r => r.r < r.maxR);
+
+      ctx.fillStyle = "#0a0e16"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#141c2c";
+      for (let x = 0; x < GW; x++) for (let y = 0; y < GH; y++) ctx.strokeRect(x*CELL, HUD + y*CELL, CELL, CELL);
+      ctx.fillStyle = "#10b981";
+      traces.forEach(k => { const [tx, ty] = k.split(",").map(Number); ctx.fillRect(tx*CELL+6, HUD+ty*CELL+6, CELL-12, CELL-12); });
+      portals.forEach((p, i) => {
+        ctx.strokeStyle = i === 0 ? "#a855f7" : "#ec4899"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(p.x*CELL+14, HUD+p.y*CELL+14, 11, 0, Math.PI*2); ctx.stroke();
+      });
+      orbs.forEach(o => {
+        ctx.fillStyle = o.polarity > 0 ? "#38bdf8" : "#fbbf24";
+        ctx.beginPath(); ctx.arc(o.x*CELL+14, HUD+o.y*CELL+14, 11, 0, Math.PI*2); ctx.fill();
+      });
+      rings.forEach(r => {
+        ctx.strokeStyle = r.polarity > 0 ? "#38bdf8" : "#ef4444"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(r.x*CELL+14, HUD+r.y*CELL+14, r.r*CELL, 0, Math.PI*2); ctx.stroke();
+      });
+      const col = polarity > 0 ? "#38bdf8" : "#fbbf24";
+      snake.forEach((s, i) => {
+        ctx.fillStyle = i === 0 ? col : (polarity > 0 ? "#0284c7" : "#d97706");
+        ctx.fillRect(s.x*CELL+2, HUD+s.y*CELL+2, CELL-4, CELL-4);
+      });
+      ctx.fillStyle = "#101624"; ctx.fillRect(0, 0, canvas.width, HUD);
+      ctx.fillStyle = col; ctx.font = "bold 16px monospace";
+      ctx.fillText(`SCORE ${String(score).padStart(4, "0")}   |   POLARITY [SPACE] ${polarity > 0 ? "POSITIVE (+)" : "NEGATIVE (-)"}`, 20, 26);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(`OVERCLOCK [SHIFT] ${String(Math.floor(charge)).padStart(3, "0")}%   |   LENGTH ${snake.length}`, 20, 52);
+      if (gameOver) {
+        ctx.fillStyle = "#f87171"; ctx.font = "bold 28px monospace";
+        ctx.fillText("CIRCUIT FAULT - PRESS R TO REBOOT", 170, 360);
+      }
+      requestAnimationFrame(loop);
+    }
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+name: Build Snek Volt Executables
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Pygame and PyInstaller
+        run: |
+          pip install pygame-ce pyinstaller
+      - name: Build Windows .exe
+        run: |
+          pyinstaller --onefile --noconsole --add-data "assets;assets" --name snek-volt-win64 main.py
+      - name: Publish to GitHub Release v1.0.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view v1.0.0 >$null 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            gh release create v1.0.0 --title "Snek Volt v1.0.0" --notes "Playable Windows 64-bit standalone executable built with PyInstaller and Pygame."
+          }
+          gh release upload v1.0.0 dist/snek-volt-win64.exe --clobber
