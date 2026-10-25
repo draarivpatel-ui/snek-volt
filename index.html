@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="description" content="Snek Volt is an electromagnetic circuit snake. Steer a copper trace, flip charge polarity, overclock, and watch the simulated rail voltage on a live oscilloscope." />
+  <meta property="og:title" content="Snek Volt | Electromagnetic circuit snake" />
+  <meta property="og:description" content="Snek Volt is an electromagnetic circuit snake. Steer a copper trace, flip charge polarity, overclock, and watch the simulated rail voltage on a live oscilloscope." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://aariv.me/snek-volt/" />
+  <meta name="twitter:card" content="summary" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%2307140f%27/%3E%3Cpath d=%27M5 22h8l4-8h10%27 fill=%27none%27 stroke=%27%23f2b866%27 stroke-width=%273.5%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3Ccircle cx=%2727%27 cy=%2714%27 r=%273%27 fill=%27%2338bdf8%27/%3E%3C/svg%3E" />
   <title>Snek Volt - Electromagnetic Circuit Snake</title>
   <style>
@@ -92,6 +97,8 @@
 
     :focus { outline: none; }
     :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+      .skip-link { position: absolute; left: 16px; top: -60px; background: var(--surface-hi); color: var(--ink); border: 1px solid var(--focus); padding: 8px 14px; border-radius: 6px; font: 600 0.875rem var(--font-ui); text-decoration: none; z-index: 30; }
+      .skip-link:focus, .skip-link:focus-visible { top: 12px; }
 
     .sr-only {
       position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
@@ -366,7 +373,8 @@
   </style>
 </head>
 <body>
-  <main class="rig" data-pol="pos" id="rig">
+  <a class="skip-link" href="#rig">Skip to main content</a>
+<main class="rig" data-pol="pos" id="rig">
     <header class="masthead">
       <div>
         <h1>Snek <span>Volt</span></h1>
