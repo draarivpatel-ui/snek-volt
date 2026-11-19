@@ -13,7 +13,6 @@ Custom Gameplay Mechanics:
 """
 
 import math
-import os
 import random
 import sys
 import pygame
@@ -33,19 +32,6 @@ PORTAL_A = (168, 85, 247)
 PORTAL_B = (236, 72, 153)
 EMP_COLOR = (239, 68, 68)
 TRACE_COLOR = (16, 185, 129)
-
-
-def load_or_build_sprite(name, color, size=CELL):
-    path = os.path.join(os.path.dirname(__file__), "assets", name)
-    if os.path.exists(path):
-        try:
-            return pygame.transform.smoothscale(pygame.image.load(path).convert_alpha(), (size, size))
-        except Exception:
-            pass
-    surf = pygame.Surface((size, size), pygame.SRCALPHA)
-    pygame.draw.circle(surf, color, (size // 2, size // 2), size // 2 - 2)
-    pygame.draw.circle(surf, (255, 255, 255), (size // 2, size // 2), size // 4)
-    return surf
 
 
 class SnekVoltGame:
